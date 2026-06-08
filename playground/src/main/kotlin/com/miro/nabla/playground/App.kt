@@ -111,7 +111,7 @@ fun App(model: PlaygroundModel) {
             GlobalControls(model)
             Spacer(Modifier.height(8.dp))
 
-            NetworkLane(model)
+            NetworkLane(model.packets, model::removePacket)
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (clients.isNotEmpty()) {
@@ -153,7 +153,7 @@ private fun GlobalControls(model: PlaygroundModel) {
 
 /** Animated link strip: packets fly between client and server nodes (aligned with the columns below). */
 @Composable
-private fun NetworkLane(model: PlaygroundModel) {
+fun NetworkLane(packets: List<Packet>, removePacket: (Long) -> Unit) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth().height(64.dp)) {
         val width = maxWidth
         val centerY = maxHeight / 2
@@ -173,13 +173,13 @@ private fun NetworkLane(model: PlaygroundModel) {
             listOf(x0, xs, x1).forEach { drawCircle(Color.Gray, radius = 6f, center = Offset(it, cy)) }
         }
 
-        model.packets.forEach { packet ->
+        packets.forEach { packet ->
             key(packet.id) {
                 val progress = remember { Animatable(0f) }
                 androidx.compose.runtime.LaunchedEffect(packet.id) {
                     progress.animateTo(1f, animationSpec = tween(durationMillis = 700))
                     packet.onArrive()
-                    model.removePacket(packet.id)
+                    removePacket(packet.id)
                 }
                 val fromX = xOf(packet.from)
                 val toX = xOf(packet.to)

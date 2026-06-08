@@ -5,25 +5,46 @@ import kotlin.math.min
 class NablaTransformer {
 
     fun transform(a: NablaBuilder, b: NablaBuilder, priority: Boolean = false): NablaBuilder {
-        // a's moves relocate content; b's edits over that content must follow it. First learn how
-        // b's edits land on a's cuts (to replay them at a's paste) and how much of b's own cuts
-        // survive a's deletes (to trim b's paste), then emit b'.
+        // a's moves relocate content; b's edits over that content must follow it. The redirect and
+        // survived maps are GLOBAL across the recursion, so a cut and its paste in different subtrees
+        // still link: a full analyze pass fills them, then a full emit pass uses them.
         val redirect = mutableMapOf<BufferId, MutableList<Operation>>()
         val survived = mutableMapOf<BufferId, Int>()
+        analyze(a, b, priority, redirect, survived)
+        return chop(emit(a, b, priority, redirect, survived))
+    }
 
+    /** Pass 1: learn how b's edits land on a's cuts (to replay at a's paste) and how much of b's own
+     * cuts survive a's deletes (to trim b's paste). Recurses into nested children. */
+    private fun analyze(
+        a: NablaBuilder,
+        b: NablaBuilder,
+        priority: Boolean,
+        redirect: MutableMap<BufferId, MutableList<Operation>>,
+        survived: MutableMap<BufferId, Int>,
+    ) {
         walk(a, b, priority, onAligned = { thisOp, otherOp, length ->
             if (thisOp is Delete && thisOp.bufferId != null) {
-                // b's edit lands on content a is moving: replay it at a's paste.
                 redirect.getOrPut(thisOp.bufferId) { mutableListOf() }.add(redirectChunk(otherOp, length))
             }
             if (otherOp is Delete && otherOp.bufferId != null) {
-                // b's cut survives only where a does not also delete it; accumulate (with 0s) so the
-                // length is known even when a deletes the whole range — then b's paste shrinks to it.
-                val surviving = if (thisOp is Delete) 0 else length
-                survived[otherOp.bufferId] = (survived[otherOp.bufferId] ?: 0) + surviving
+                // Accumulate (with 0s) so the length is known even when a deletes the whole range.
+                survived[otherOp.bufferId] = (survived[otherOp.bufferId] ?: 0) + if (thisOp is Delete) 0 else length
             }
+            val thisChild = (thisOp as? Retain)?.child
+            val otherChild = (otherOp as? Retain)?.child
+            if (thisChild != null && otherChild != null) analyze(thisChild, otherChild, priority, redirect, survived)
         })
+    }
 
+    /** Pass 2: emit b', replaying redirected edits at a's pastes and trimming b's pastes. */
+    private fun emit(
+        a: NablaBuilder,
+        b: NablaBuilder,
+        priority: Boolean,
+        redirect: Map<BufferId, List<Operation>>,
+        survived: Map<BufferId, Int>,
+    ): NablaBuilder {
         val builder = NablaBuilder()
         walk(
             a, b, priority,
@@ -41,9 +62,7 @@ class NablaTransformer {
                 if (element is BufferElement) {
                     // b pastes moved content: keep only what survived a's deletes to its source.
                     val length = survived[element.bufferId] ?: element.length
-                    if (length > 0) {
-                        builder.push(Insert(BufferElement(element.bufferId, length), insert.attributes))
-                    }
+                    if (length > 0) builder.push(Insert(BufferElement(element.bufferId, length), insert.attributes))
                 } else {
                     builder.push(insert)
                 }
@@ -54,15 +73,21 @@ class NablaTransformer {
                 } else if (otherOp is Delete) {
                     builder.push(otherOp)
                 } else {
-                    builder.retain(
-                        length,
-                        AttributeMap.transform(attributesOf(thisOp), attributesOf(otherOp), priority),
-                    )
+                    val attributes = AttributeMap.transform(attributesOf(thisOp), attributesOf(otherOp), priority)
+                    val thisChild = (thisOp as? Retain)?.child
+                    val otherChild = (otherOp as? Retain)?.child
+                    // Descend whenever a edits this node's children — even if b does not — so a paste
+                    // that landed in this subtree (from a cut elsewhere) gets its edits replayed.
+                    val child = if (thisChild != null) {
+                        emit(thisChild, otherChild ?: NablaBuilder(), priority, redirect, survived).takeIf { it.ops.isNotEmpty() }
+                    } else {
+                        otherChild
+                    }
+                    builder.retain(length, attributes, child)
                 }
             },
         )
-
-        return chop(builder)
+        return builder
     }
 
     fun transformPosition(a: NablaBuilder, index: Int, priority: Boolean = false): Int {
@@ -133,7 +158,7 @@ class NablaTransformer {
 
     private fun chop(builder: NablaBuilder): NablaBuilder {
         val last = builder.ops.lastOrNull()
-        if (last is Retain && last.attributes.isEmpty) {
+        if (last is Retain && last.attributes.isEmpty && last.child == null) {
             return NablaBuilder(builder.ops.dropLast(1))
         }
         return builder

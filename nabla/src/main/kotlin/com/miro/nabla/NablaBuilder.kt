@@ -24,12 +24,16 @@ class NablaBuilder() {
         return push(Delete(length))
     }
 
-    fun retain(length: Int, attributes: AttributeMap = AttributeMap.empty()): NablaBuilder {
+    fun retain(
+        length: Int,
+        attributes: AttributeMap = AttributeMap.empty(),
+        child: NablaBuilder? = null,
+    ): NablaBuilder {
         require(length >= 0) { "length must be non-negative" }
         if (length == 0) {
             return this
         }
-        return push(Retain(length, attributes))
+        return push(Retain(length, attributes, child))
     }
 
     /** A "cut": deletes [length] characters whose content is carried to a paste with [bufferId]. */
@@ -76,7 +80,9 @@ class NablaBuilder() {
                 _ops[index - 1] = merged
                 return this
             }
-        } else if (op is Retain && lastOp is Retain && op.attributes == lastOp.attributes) {
+        } else if (op is Retain && lastOp is Retain && op.attributes == lastOp.attributes &&
+            op.child == null && lastOp.child == null
+        ) {
             _ops[index - 1] = Retain(lastOp.length + op.length, op.attributes)
             return this
         }

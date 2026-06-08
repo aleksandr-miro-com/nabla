@@ -20,9 +20,10 @@ class NablaComposer {
         val head = mutableListOf<Operation>()
 
         // Retain-start optimization: copy leading inserts that an attribute-less leading retain
-        // simply skips over, instead of recomposing them op by op.
+        // simply skips over, instead of recomposing them op by op. A retain carrying a child edits
+        // the element it passes over, so it must not be treated as a plain skip.
         val firstOther = otherIter.peek()
-        if (firstOther is Retain && firstOther.attributes.isEmpty) {
+        if (firstOther is Retain && firstOther.attributes.isEmpty && firstOther.child == null) {
             var firstLeft = firstOther.length
             while (thisIter.peek() is Insert && thisIter.peekLength() <= firstLeft) {
                 firstLeft -= thisIter.peekLength()
@@ -58,9 +59,17 @@ class NablaComposer {
                         attributesOf(otherOp),
                         keepNull = thisIsRetain,
                     )
-                    val newOp: Operation =
-                        if (thisOp is Insert) thisOp.copy(attributes = attributes)
-                        else Retain(length, attributes)
+                    // A retain may carry a nested change for the element's children.
+                    val childChange = (otherOp as? Retain)?.child
+                    val newOp: Operation = if (thisOp is Insert) {
+                        val element = thisOp.element
+                        val composed = element.children?.takeIf { childChange != null }
+                            ?.let { element.withChildren(composeOps(it, childChange!!, buffers)) }
+                            ?: element
+                        Insert(composed, attributes)
+                    } else {
+                        Retain(length, attributes, composeChildren((thisOp as? Retain)?.child, childChange, buffers))
+                    }
 
                     builder.push(newOp)
 
@@ -86,6 +95,17 @@ class NablaComposer {
         return chop(builder)
     }
 
+    /** Composes two nested child changes, treating a `null` child as "no change". */
+    private fun composeChildren(
+        a: NablaBuilder?,
+        b: NablaBuilder?,
+        buffers: MutableMap<BufferId, MutableList<Operation>>,
+    ): NablaBuilder? = when {
+        a == null -> b
+        b == null -> a
+        else -> composeOps(a, b, buffers)
+    }
+
     private fun attributesOf(op: Operation?): AttributeMap = when (op) {
         is Insert -> op.attributes
         is Retain -> op.attributes
@@ -102,34 +122,41 @@ class NablaComposer {
 
     private fun chop(builder: NablaBuilder): NablaBuilder {
         val last = builder.ops.lastOrNull()
-        if (last is Retain && last.attributes.isEmpty) {
+        if (last is Retain && last.attributes.isEmpty && last.child == null) {
             return NablaBuilder(builder.ops.dropLast(1))
         }
         return builder
     }
 
     /**
-     * Replaces each resolved paste with the content its cut captured into [buffers]. A paste whose
-     * buffer was not fully captured (e.g. its cut removed content not present in this compose) is
-     * left as a placeholder, to be resolved when composed onto the missing content.
+     * Replaces each resolved paste with the content its cut captured into [buffers], recursing into
+     * nested children so a cut and a paste in different subtrees still link up (buffers are global).
+     * A paste whose buffer was not fully captured is left as a placeholder, to be resolved when
+     * composed onto the missing content.
      */
     private fun expandPastes(
         builder: NablaBuilder,
         buffers: Map<BufferId, List<Operation>>,
     ): NablaBuilder {
-        if (builder.ops.none { it is Insert && it.element is BufferElement }) {
-            return builder
-        }
         val out = NablaBuilder()
         for (op in builder.ops) {
-            val element = (op as? Insert)?.element
-            val captured = if (element is BufferElement) buffers[element.bufferId] else null
-            if (element is BufferElement && captured != null &&
-                captured.sumOf { it.length } == element.length
-            ) {
-                captured.forEach(out::push)
-            } else {
-                out.push(op)
+            when (op) {
+                is Insert -> {
+                    val element = op.element
+                    val captured = if (element is BufferElement) buffers[element.bufferId] else null
+                    when {
+                        element is BufferElement && captured != null &&
+                            captured.sumOf { it.length } == element.length ->
+                            captured.forEach(out::push)
+                        element.children != null ->
+                            out.push(Insert(element.withChildren(expandPastes(element.children!!, buffers)), op.attributes))
+                        else -> out.push(op)
+                    }
+                }
+                is Retain ->
+                    if (op.child != null) out.push(Retain(op.length, op.attributes, expandPastes(op.child, buffers)))
+                    else out.push(op)
+                is Delete -> out.push(op)
             }
         }
         return out

@@ -216,25 +216,27 @@ class PlaygroundModel(clientCount: Int = 2) {
         changed()
     }
 
-    private fun kindOf(delta: NablaBuilder): PacketKind {
-        var insert = false
-        var delete = false
-        for (op in delta.ops) {
-            when (op) {
-                is Insert -> insert = true
-                is Delete -> delete = true
-                else -> {}
-            }
-        }
-        return when {
-            insert -> PacketKind.INSERT
-            delete -> PacketKind.DELETE
-            else -> PacketKind.RETAIN
-        }
-    }
+}
 
-    private fun kindOfMessage(message: ServerMessage): PacketKind = when (message) {
-        Acknowledgement -> PacketKind.ACK
-        is RemoteOperation -> kindOf(message.op)
+/** Colour category for an in-flight delta: insert (green), delete (red), or pure retain (blue). */
+fun kindOf(delta: NablaBuilder): PacketKind {
+    var insert = false
+    var delete = false
+    for (op in delta.ops) {
+        when (op) {
+            is Insert -> insert = true
+            is Delete -> delete = true
+            else -> {}
+        }
     }
+    return when {
+        insert -> PacketKind.INSERT
+        delete -> PacketKind.DELETE
+        else -> PacketKind.RETAIN
+    }
+}
+
+fun kindOfMessage(message: ServerMessage): PacketKind = when (message) {
+    Acknowledgement -> PacketKind.ACK
+    is RemoteOperation -> kindOf(message.op)
 }
