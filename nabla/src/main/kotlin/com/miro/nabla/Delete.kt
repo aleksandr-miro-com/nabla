@@ -1,6 +1,6 @@
 package com.miro.nabla
 
-data class Delete(override val length: Int) : Operation {
+data class Delete(override val length: Int, val bufferId: BufferId? = null) : Operation {
     init {
         require(length > 0)
     }
@@ -10,6 +10,6 @@ data class Delete(override val length: Int) : Operation {
         if (offset == 0 && length == this.length) {
             return this
         }
-        return Delete(length)
+        return Delete(length, bufferId)
     }
 }

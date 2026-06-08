@@ -5,6 +5,15 @@ import kotlin.math.min
 class NablaComposer {
 
     fun compose(a: NablaBuilder, b: NablaBuilder): NablaBuilder {
+        val buffers = mutableMapOf<BufferId, MutableList<Operation>>()
+        return expandPastes(composeOps(a, b, buffers), buffers)
+    }
+
+    private fun composeOps(
+        a: NablaBuilder,
+        b: NablaBuilder,
+        buffers: MutableMap<BufferId, MutableList<Operation>>,
+    ): NablaBuilder {
         val thisIter = OperationIterator(a.ops)
         val otherIter = OperationIterator(b.ops)
 
@@ -60,10 +69,16 @@ class NablaComposer {
                     if (!otherIter.hasNext() && builder.ops.lastOrNull() == newOp) {
                         return chop(concat(builder, thisIter.remaining()))
                     }
-                } else if (otherOp is Delete && thisIsRetain) {
-                    // Other op is a delete over our retain (or implicit retain): keep it.
-                    // An insert + delete cancels out, so an insert `thisOp` is simply dropped.
-                    builder.push(otherOp)
+                } else if (otherOp is Delete) {
+                    if (otherOp.bufferId != null && thisOp is Insert) {
+                        // A cut over inserted content: capture it for the matching paste to re-emit,
+                        // then drop it here (the insert + delete cancels out).
+                        buffers.getOrPut(otherOp.bufferId) { mutableListOf() }.add(thisOp)
+                    } else if (thisIsRetain) {
+                        // A delete over our retain (or implicit retain): keep it. An insert + plain
+                        // delete cancels out, so an insert `thisOp` is simply dropped.
+                        builder.push(otherOp)
+                    }
                 }
             }
         }
@@ -91,5 +106,32 @@ class NablaComposer {
             return NablaBuilder(builder.ops.dropLast(1))
         }
         return builder
+    }
+
+    /**
+     * Replaces each resolved paste with the content its cut captured into [buffers]. A paste whose
+     * buffer was not fully captured (e.g. its cut removed content not present in this compose) is
+     * left as a placeholder, to be resolved when composed onto the missing content.
+     */
+    private fun expandPastes(
+        builder: NablaBuilder,
+        buffers: Map<BufferId, List<Operation>>,
+    ): NablaBuilder {
+        if (builder.ops.none { it is Insert && it.element is BufferElement }) {
+            return builder
+        }
+        val out = NablaBuilder()
+        for (op in builder.ops) {
+            val element = (op as? Insert)?.element
+            val captured = if (element is BufferElement) buffers[element.bufferId] else null
+            if (element is BufferElement && captured != null &&
+                captured.sumOf { it.length } == element.length
+            ) {
+                captured.forEach(out::push)
+            } else {
+                out.push(op)
+            }
+        }
+        return out
     }
 }

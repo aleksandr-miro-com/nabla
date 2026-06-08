@@ -32,12 +32,30 @@ class NablaBuilder() {
         return push(Retain(length, attributes))
     }
 
+    /** A "cut": deletes [length] characters whose content is carried to a paste with [bufferId]. */
+    fun cut(length: Int, bufferId: BufferId): NablaBuilder {
+        require(length > 0) { "length must be positive" }
+        return push(Delete(length, bufferId))
+    }
+
+    /** A "paste": re-inserts the [length] characters removed by the cut sharing [bufferId]. */
+    fun paste(
+        length: Int,
+        bufferId: BufferId,
+        attributes: AttributeMap = AttributeMap.empty(),
+    ): NablaBuilder {
+        require(length > 0) { "length must be positive" }
+        return push(Insert(BufferElement(bufferId, length), attributes))
+    }
+
     fun push(op: Operation): NablaBuilder {
         var index = _ops.size
         var lastOp = _ops.getOrNull(index - 1)
 
-        if (op is Delete && lastOp is Delete) {
-            _ops[index - 1] = Delete(lastOp.length + op.length)
+        // Deletes coalesce only when they share a buffer id: plain deletes (both null) merge, and the
+        // two halves of one cut split by a transform re-merge; distinct cuts stay distinct.
+        if (op is Delete && lastOp is Delete && op.bufferId == lastOp.bufferId) {
+            _ops[index - 1] = Delete(lastOp.length + op.length, op.bufferId)
             return this
         }
 
@@ -69,5 +87,22 @@ class NablaBuilder() {
             _ops.add(index, op)
         }
         return this
+    }
+
+    override fun toString(): String {
+        return "NablaBuilder(_ops=$_ops, ops=$ops)"
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as NablaBuilder
+
+        return _ops == other._ops
+    }
+
+    override fun hashCode(): Int {
+        return _ops.hashCode()
     }
 }

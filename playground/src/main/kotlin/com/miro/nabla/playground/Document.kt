@@ -1,5 +1,6 @@
 package com.miro.nabla.playground
 
+import com.miro.nabla.BufferId
 import com.miro.nabla.Delete
 import com.miro.nabla.Element
 import com.miro.nabla.Insert
@@ -47,18 +48,20 @@ fun replaceChange(start: Int, end: Int, text: String): NablaBuilder {
 }
 
 /**
- * A *single* change that moves the selection `[start, end)` (containing [moved]) to [dropAt],
- * encoding the delete and the re-insert in one delta — unlike a separate cut + paste.
- * Requires [dropAt] to fall outside `[start, end)`.
+ * A *single* change that moves the selection `[start, end)` to [dropAt], as a linked cut + paste
+ * sharing [bufferId]. Unlike a plain delete + re-insert of a text snapshot, this is a first-class
+ * move: the composer resolves the paste from whatever the cut removes, and the transformer carries
+ * concurrent edits to the moved range along with it. Requires [dropAt] to fall outside `[start, end)`.
  */
-fun moveChange(start: Int, end: Int, dropAt: Int, moved: String): NablaBuilder {
+fun moveChange(start: Int, end: Int, dropAt: Int, bufferId: BufferId): NablaBuilder {
+    val length = end - start
     val change = NablaBuilder()
     if (dropAt <= start) {
-        change.retain(dropAt).insert(TextElement(moved))
-        change.retain(start - dropAt).delete(end - start)
+        change.retain(dropAt).paste(length, bufferId)
+        change.retain(start - dropAt).cut(length, bufferId)
     } else {
-        change.retain(start).delete(end - start)
-        change.retain(dropAt - end).insert(TextElement(moved))
+        change.retain(start).cut(length, bufferId)
+        change.retain(dropAt - end).paste(length, bufferId)
     }
     return change
 }

@@ -38,6 +38,10 @@ interface AttributeMap {
             override fun get(key: String): Any? = null
 
             override fun contains(key: String): Boolean = false
+
+            override fun toString(): String {
+                return "{}"
+            }
         }
 
         private data class NonEmptyAttributeMap(private val attributes: Map<String, Any?> = emptyMap()) : AttributeMap {

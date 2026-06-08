@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.miro.nabla.BufferElement
 import com.miro.nabla.Delete
 import com.miro.nabla.Insert
 import com.miro.nabla.NablaBuilder
@@ -314,10 +315,15 @@ private fun DeltaChips(delta: NablaBuilder) {
     delta.ops.forEach { op ->
         when (op) {
             is Insert -> {
-                val label = (op.element as? TextElement)?.text?.let { "“$it”" } ?: "embed"
+                val label = when (val element = op.element) {
+                    is TextElement -> "“${element.text}”"
+                    is BufferElement -> "⎘ ${element.length}" // paste (moved content)
+                    else -> "embed"
+                }
                 OpChip(label, InsertFg, InsertBg)
             }
-            is Delete -> OpChip("⌫ ${op.length}", DeleteFg, DeleteBg)
+            is Delete ->
+                OpChip(if (op.bufferId != null) "✂ ${op.length}" else "⌫ ${op.length}", DeleteFg, DeleteBg)
             is Retain -> {
                 val formatting = if (!op.attributes.isEmpty) " ✎" else ""
                 OpChip("→ ${op.length}$formatting", RetainFg, RetainBg)

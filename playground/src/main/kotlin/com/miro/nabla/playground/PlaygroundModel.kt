@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.miro.nabla.BufferId
 import com.miro.nabla.Delete
 import com.miro.nabla.Insert
 import com.miro.nabla.NablaBuilder
@@ -46,6 +47,10 @@ class PlaygroundModel(clientCount: Int = 2) {
 
     val packets = mutableStateListOf<Packet>()
     private var packetSeq = 0L
+
+    // Move buffer ids: unique per (client, sequence) without coordination, and totally ordered.
+    private var bufferSeq = 0L
+    private fun newBufferId(clientId: Int): BufferId = BufferId((clientId.toLong() shl 40) or bufferSeq++)
 
     private fun changed() {
         tick++
@@ -125,18 +130,17 @@ class PlaygroundModel(clientCount: Int = 2) {
         applyEdit(clientId, replaceChange(caret, caret + 1, ""), caret = caret)
     }
 
-    /** Moves the current selection to [dropAt] as one combined delete+insert change. */
+    /** Moves the current selection to [dropAt] as one first-class move (linked cut + paste). */
     fun moveSelection(clientId: Int, dropAt: Int) {
         clamp(clientId)
         val selection = selectionRange(clientId) ?: return
         val (start, end) = selection
         if (dropAt in start..end) return
-        val moved = doc(clientId).substring(start, end)
         val newStart = if (dropAt <= start) dropAt else dropAt - (end - start)
         applyEdit(
             clientId,
-            moveChange(start, end, dropAt, moved),
-            caret = newStart + moved.length,
+            moveChange(start, end, dropAt, newBufferId(clientId)),
+            caret = newStart + (end - start),
             anchor = newStart,
         )
     }
