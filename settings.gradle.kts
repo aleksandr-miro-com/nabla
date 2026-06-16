@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "nabla"
 
-include(":nabla", ":playground")
+include(":nabla", ":playground", ":backend")
