@@ -2,6 +2,8 @@
 .gradle/
 build/
 
+node_modules/
+
 # IntelliJ IDEA
 .idea/
 *.iml

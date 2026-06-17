@@ -13,6 +13,21 @@ dependencies {
     // Align versions of all Kotlin components.
     implementation(platform(libs.kotlin.bom))
 
+    implementation(libs.spring.boot.starter.web)
+    api(libs.collaboration.engine.api)
+    implementation(libs.collaboration.engine.core)
+    implementation(libs.collaboration.engine.transport)
+
+//    implementation(libs.grpc.netty.shade)
+//    implementation("io.grpc:grpc-inprocess")
+
+    api(platform(libs.netty.bom))
+    implementation("io.netty:netty-handler")
+    implementation("io.netty:netty-codec-http")
+
+    implementation(platform(libs.micrometer.bom))
+    implementation("io.micrometer:micrometer-core")
+
     // Use the Kotlin standard library.
     implementation(libs.kotlin.stdlib)
 
